@@ -1,0 +1,20 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "tasks",
+    srcs = [
+        "dto_types.go",
+        "tasks.go",
+        "tasks_processor.go",
+    ],
+    importpath = "github.com/cockroachdb/cockroach/pkg/cmd/roachprod-centralized/services/tasks",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkg/cmd/roachprod-centralized/models/tasks",
+        "//pkg/cmd/roachprod-centralized/repositories/tasks",
+        "//pkg/util/uuid",
+        "@com_github_prometheus_client_golang//prometheus",
+        "@com_github_prometheus_client_golang//prometheus/promauto",
+        "@com_github_samber_slog_multi//:slog-multi",
+    ],
+)
