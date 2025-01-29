@@ -182,6 +182,8 @@ setup_disks true
 
 {{ template "ssh_utils" . }}
 
+{{ template "node_exporter" . }}
+
 sudo touch {{ .OSInitializedFile }}
 `
 
