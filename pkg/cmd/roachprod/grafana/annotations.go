@@ -7,16 +7,15 @@ package grafana
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
+	"github.com/cockroachdb/cockroach/pkg/roachprod/promhelperclient"
 	"github.com/cockroachdb/cockroach/pkg/roachprod/roachprodutil"
 	"github.com/cockroachdb/cockroach/pkg/util/httputil"
 	"github.com/cockroachdb/errors"
 	"github.com/go-openapi/strfmt"
 	grafana "github.com/grafana/grafana-openapi-client-go/client"
 	"github.com/grafana/grafana-openapi-client-go/models"
-	"google.golang.org/api/idtoken"
 )
 
 // newGrafanaClient is a helper function that creates an HTTP client to
@@ -29,19 +28,22 @@ func newGrafanaClient(
 	headers := map[string]string{}
 	scheme := "http"
 
+	// Create a new HTTP client.
+	grafanaHttpClient := httputil.DefaultClient.Client
+
 	if secure {
 		scheme = "https"
 
-		// Read in the service account key and audience, so we can retrieve the identity token.
-		if _, err := roachprodutil.SetServiceAccountCredsEnv(ctx, false); err != nil {
-			return nil, err
-		}
-
-		token, err := roachprodutil.GetServiceAccountToken(ctx, idtoken.NewTokenSource)
+		// Grafana annotations use the same service account and OAuth client ID
+		// as the prometheus helper service.
+		iapTokenSource, err := roachprodutil.NewIAPTokenSource(roachprodutil.IAPTokenSourceOptions{
+			OAuthClientID:       promhelperclient.OAuthClientID,
+			ServiceAccountEmail: promhelperclient.ServiceAccountEmail,
+		})
 		if err != nil {
 			return nil, err
 		}
-		headers["Authorization"] = fmt.Sprintf("Bearer %s", token)
+		grafanaHttpClient = iapTokenSource.GetHTTPClient()
 	}
 
 	headers[httputil.ContentTypeHeader] = httputil.JSONContentType
@@ -50,6 +52,7 @@ func newGrafanaClient(
 		BasePath:    "/api",
 		Schemes:     []string{scheme},
 		HTTPHeaders: headers,
+		Client:      grafanaHttpClient,
 	}
 
 	return grafana.NewHTTPClientWithConfig(strfmt.Default, cfg), nil
