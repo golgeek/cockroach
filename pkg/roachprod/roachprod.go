@@ -823,7 +823,10 @@ func updatePrometheusTargets(
 	for _, node := range c.Nodes {
 
 		// only gce is supported for prometheus
-		reachability := cl.ProviderReachability(c.VMs[node-1].Provider)
+		reachability := promhelperclient.ProviderReachability(
+			c.VMs[node-1].Provider,
+			c.VMs[node-1].Project,
+		)
 		if reachability == promhelperclient.None {
 			continue
 		}
@@ -884,6 +887,7 @@ func createLabels(v vm.VM, job string, insecure bool) map[string]string {
 		"host_public_ip": v.PublicIP,
 		"project":        v.Project,
 		"zone":           v.Zone,
+		"provider":       v.Provider,
 		"job":            job,
 	}
 	match := regionRegEx.FindStringSubmatch(v.Zone)
@@ -907,9 +911,30 @@ func createLabels(v vm.VM, job string, insecure bool) map[string]string {
 		labels["__metrics_path__"] = vm.NodeExporterMetricsPath
 		// node exporter is always scraped over http
 		labels["__scheme__"] = "http"
+
+		// Node ID is exposed by cockroachdb metrics, we add it to node_exporter
+		nodeID, err := extractNodeIDFromName(v.Name)
+		if err == nil {
+			labels["node_id"] = strconv.Itoa(nodeID)
+		}
 	}
 
 	return labels
+}
+
+func extractNodeIDFromName(name string) (int, error) {
+	parts := strings.Split(name, "-")
+	if len(parts) < 2 {
+		return 0, fmt.Errorf("invalid VM name %s, unable to guess node ID", name)
+	}
+	nodeID, err := strconv.Atoi(parts[len(parts)-1])
+	if err != nil {
+		return 0, errors.Wrapf(
+			err,
+			"unable to guess node ID from %s in VM name %s", parts[len(parts)-1], name,
+		)
+	}
+	return nodeID, nil
 }
 
 // Monitor monitors the status of cockroach nodes in a cluster.

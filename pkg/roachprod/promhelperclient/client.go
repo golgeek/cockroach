@@ -52,11 +52,29 @@ const (
 	Public
 )
 
-// The URL for the Prometheus registration service. An empty string means that the
-// Prometheus integration is disabled. Should be accessed through
-// getPrometheusRegistrationUrl().
-var promRegistrationUrl = config.EnvOrDefaultString("ROACHPROD_PROM_HOST_URL",
-	"https://grafana.testeng.crdb.io/promhelpers")
+var (
+	// The URL for the Prometheus registration service. An empty string means
+	// that the Prometheus integration is disabled. Should be accessed through
+	// getPrometheusRegistrationUrl().
+	promRegistrationUrl = config.EnvOrDefaultString(
+		"ROACHPROD_PROM_HOST_URL",
+		"https://grafana.testeng.crdb.io/promhelpers",
+	)
+	// supportedPromProviders are the providers supported for prometheus target
+	// and their reachability.
+	supportedPromProviders = map[string]map[string]Reachability{
+		gce.ProviderName: {
+			"default":             Public,
+			"cockroach-ephemeral": Private,
+		},
+		aws.ProviderName: {
+			"default": Public,
+		},
+		azure.ProviderName: {
+			"default": Public,
+		},
+	}
+)
 
 // PromClient is used to communicate with the prometheus helper service
 // keeping the functions as a variable enables us to override the value for unit testing
@@ -74,9 +92,6 @@ type PromClient struct {
 	// newTokenSource is the token generator source.
 	newTokenSource func(ctx context.Context, audience string, opts ...idtoken.ClientOption) (
 		oauth2.TokenSource, error)
-
-	// supportedPromProviders are the providers supported for prometheus target
-	supportedPromProviders map[string]Reachability
 }
 
 // IsNotFoundError returns true if the error is a 404 error.
@@ -92,11 +107,6 @@ func NewPromClient() *PromClient {
 		httpPut:        httputil.Put,
 		httpDelete:     httputil.Delete,
 		newTokenSource: idtoken.NewTokenSource,
-		supportedPromProviders: map[string]Reachability{
-			gce.ProviderName:   Private,
-			aws.ProviderName:   Public,
-			azure.ProviderName: Public,
-		},
 	}
 }
 
@@ -200,11 +210,22 @@ func getUrl(promUrl, clusterName string) string {
 }
 
 // ProviderReachability returns the reachability of the provider
-func (c *PromClient) ProviderReachability(provider string) Reachability {
-	if reachability, ok := c.supportedPromProviders[provider]; ok {
+func ProviderReachability(provider, project string) Reachability {
+
+	// If the provider is not supported, return None.
+	providerReachability, ok := supportedPromProviders[provider]
+	if !ok {
+		return None
+	}
+
+	// If the project is supported and has a specific reachability defined
+	// for the specified project, return this reachability.
+	if reachability, ok := providerReachability[project]; ok {
 		return reachability
 	}
-	return None
+
+	// Return the default reachability for the provider.
+	return providerReachability["default"]
 }
 
 // CCParams are the params for the cluster configs
