@@ -15,6 +15,7 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/roachprod/vm/aws"
 	"github.com/cockroachdb/cockroach/pkg/roachprod/vm/azure"
 	"github.com/cockroachdb/cockroach/pkg/roachprod/vm/gce"
+	"github.com/cockroachdb/cockroach/pkg/roachprod/vm/ibm"
 	"github.com/cockroachdb/cockroach/pkg/util/randutil"
 	"github.com/cockroachdb/cockroach/pkg/util/timeutil"
 	"github.com/cockroachdb/errors"
@@ -144,6 +145,14 @@ type ClusterSpec struct {
 	Azure struct {
 		Zones string
 	} `cloud:"azure"`
+	// IBM-specific arguments. These values apply only on clusters instantiated on IBM.
+	IBM struct {
+		MachineType string
+		VolumeType  string
+		VolumeIOPS  int
+		VolumeCount int
+		Zones       string
+	} `cloud:"ibm"`
 }
 
 // MakeClusterSpec makes a ClusterSpec.
@@ -284,6 +293,45 @@ func getAzureOpts(machineType string, volumeSize int) vm.ProviderOpts {
 	return opts
 }
 
+func getIBMOpts(
+	machineType string,
+	terminateOnMigration bool,
+	volumeSize int,
+	volumeType string,
+	volumeIOPS int,
+	extraVolumeCount int,
+	RAID0 bool,
+) vm.ProviderOpts {
+	opts := ibm.DefaultProviderOpts()
+	opts.MachineType = machineType
+	opts.TerminateOnMigration = terminateOnMigration
+
+	if volumeType != "" {
+		opts.DefaultVolume.VolumeType = volumeType
+	}
+	if volumeSize != 0 {
+		opts.DefaultVolume.VolumeSize = volumeSize
+	}
+	if volumeIOPS != 0 {
+		opts.DefaultVolume.IOPS = volumeIOPS
+	}
+
+	// We reuse the parameters of the default data volume for extra volumes.
+	opts.AttachedVolumes = make(ibm.IbmVolumeList, 0)
+	if extraVolumeCount > 0 {
+		for i := 0; i < extraVolumeCount; i++ {
+			opts.AttachedVolumes = append(opts.AttachedVolumes, &ibm.IbmVolume{
+				VolumeType: opts.DefaultVolume.VolumeType,
+				VolumeSize: opts.DefaultVolume.VolumeSize,
+				IOPS:       opts.DefaultVolume.IOPS,
+			})
+		}
+		opts.UseMultipleDisks = !RAID0
+	}
+
+	return opts
+}
+
 // RoachprodClusterConfig contains general roachprod cluster configuration that
 // does not depend on the test. It is used in conjunction with ClusterSpec to
 // determine the final configuration.
@@ -348,7 +396,7 @@ func (s *ClusterSpec) RoachprodOpts(
 		createVMOpts.VMProviders = []string{cloud.String()}
 		// remaining opts are not applicable to local clusters
 		return createVMOpts, nil, nil, requestedArch, nil
-	case AWS, GCE, Azure:
+	case AWS, GCE, Azure, IBM:
 		createVMOpts.VMProviders = []string{cloud.String()}
 	default:
 		return vm.CreateOpts{}, nil, nil, "", errors.Errorf("unsupported cloud %v", cloud)
@@ -375,6 +423,10 @@ func (s *ClusterSpec) RoachprodOpts(
 		if s.GCE.MachineType != "" {
 			machineType = s.GCE.MachineType
 		}
+	case IBM:
+		if s.IBM.MachineType != "" {
+			machineType = s.IBM.MachineType
+		}
 	}
 	// Assume selected machine type has the same arch as requested unless SelectXXXMachineType says otherwise.
 	selectedArch := requestedArch
@@ -394,6 +446,8 @@ func (s *ClusterSpec) RoachprodOpts(
 				machineType, selectedArch = SelectGCEMachineType(s.CPUs, s.Mem, requestedArch)
 			case Azure:
 				machineType, selectedArch, err = SelectAzureMachineType(s.CPUs, s.Mem, requestedArch)
+			case IBM:
+				machineType, selectedArch, err = SelectIBMMachineType(s.CPUs, s.Mem, requestedArch)
 			}
 
 			if err != nil {
@@ -426,13 +480,13 @@ func (s *ClusterSpec) RoachprodOpts(
 	}
 
 	if s.FileSystem == Zfs {
-		if cloud != GCE {
+		if cloud != GCE && cloud != IBM {
 			return vm.CreateOpts{}, nil, nil, "", errors.Errorf(
 				"node creation with zfs file system not yet supported on %s", cloud,
 			)
 		}
 		createVMOpts.SSDOpts.FileSystem = vm.Zfs
-	} else if s.RandomlyUseZfs && cloud == GCE {
+	} else if s.RandomlyUseZfs && (cloud == GCE || cloud == IBM) {
 		rng, _ := randutil.NewPseudoRand()
 		if rng.Float64() <= 0.2 {
 			createVMOpts.SSDOpts.FileSystem = vm.Zfs
@@ -448,6 +502,8 @@ func (s *ClusterSpec) RoachprodOpts(
 		workloadMachineType, _ = SelectGCEMachineType(s.WorkloadNodeCPUs, s.Mem, selectedArch)
 	case Azure:
 		workloadMachineType, _, err = SelectAzureMachineType(s.WorkloadNodeCPUs, s.Mem, selectedArch)
+	case IBM:
+		workloadMachineType, _, err = SelectIBMMachineType(s.WorkloadNodeCPUs, s.Mem, selectedArch)
 	}
 	if err != nil {
 		return vm.CreateOpts{}, nil, nil, "", err
@@ -478,6 +534,13 @@ func (s *ClusterSpec) RoachprodOpts(
 	case Azure:
 		providerOpts = getAzureOpts(machineType, s.VolumeSize)
 		workloadProviderOpts = getAzureOpts(workloadMachineType, s.VolumeSize)
+	case IBM:
+		providerOpts = getIBMOpts(machineType, s.TerminateOnMigration, s.VolumeSize,
+			s.IBM.VolumeType, s.IBM.VolumeIOPS, s.IBM.VolumeCount, s.RAID0,
+		)
+		workloadProviderOpts = getIBMOpts(workloadMachineType, s.TerminateOnMigration, s.VolumeSize,
+			s.IBM.VolumeType, s.IBM.VolumeIOPS, s.IBM.VolumeCount, s.RAID0,
+		)
 	}
 
 	return createVMOpts, providerOpts, workloadProviderOpts, selectedArch, nil
@@ -503,6 +566,10 @@ func (s *ClusterSpec) SetRoachprodOptsZones(
 	case Azure:
 		if s.Azure.Zones != "" {
 			zonesStr = s.Azure.Zones
+		}
+	case IBM:
+		if s.IBM.Zones != "" {
+			zonesStr = s.IBM.Zones
 		}
 	}
 	var zones []string
@@ -546,6 +613,16 @@ func (s *ClusterSpec) SetRoachprodOptsZones(
 		}
 		providerOpts.(*azure.ProviderOpts).Zones = zones
 		workloadProviderOpts.(*azure.ProviderOpts).Zones = zones
+	case IBM:
+		if len(zones) == 0 {
+			if !s.Geo {
+				zones = ibm.DefaultZones[:1]
+			} else {
+				zones = ibm.DefaultZones
+			}
+		}
+		providerOpts.(*ibm.ProviderOpts).CreateZones = zones
+		workloadProviderOpts.(*ibm.ProviderOpts).CreateZones = zones
 	}
 	return providerOpts, workloadProviderOpts
 }
