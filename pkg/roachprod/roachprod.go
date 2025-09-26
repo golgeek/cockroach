@@ -31,6 +31,7 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/build"
 	"github.com/cockroachdb/cockroach/pkg/cli/exit"
 	"github.com/cockroachdb/cockroach/pkg/cmd/roachprod/grafana"
+	"github.com/cockroachdb/cockroach/pkg/roachprod/centralizedapi"
 	"github.com/cockroachdb/cockroach/pkg/roachprod/cloud"
 	cloudcluster "github.com/cockroachdb/cockroach/pkg/roachprod/cloud/types"
 	"github.com/cockroachdb/cockroach/pkg/roachprod/config"
@@ -309,34 +310,38 @@ func Sync(l *logger.Logger, options vm.ListOptions) (*cloud.Cloud, error) {
 	// been used to get the VMs and for GCP also if we listed the VMs in the
 	// default project).
 	refreshDNS := true
-
-	if p := vm.Providers[gce.ProviderName]; !p.Active() {
+	if centralizedapi.GetCentralizedAPIClient().IsEnabled() {
 		refreshDNS = false
 	} else {
-		var defaultProjectFound bool
-		for _, prj := range p.(*gce.Provider).GetProjects() {
-			if prj == gce.DefaultProject() {
-				defaultProjectFound = true
-				break
-			}
-		}
-		if !defaultProjectFound {
+		if p := vm.Providers[gce.ProviderName]; !p.Active() {
 			refreshDNS = false
-		}
-	}
-	// If there are no DNS required providers, we shouldn't refresh DNS,
-	// it's probably a misconfiguration.
-	if len(config.DNSRequiredProviders) == 0 {
-		refreshDNS = false
-	} else {
-		// If any of the required providers is not active, we shouldn't refresh DNS.
-		for _, p := range config.DNSRequiredProviders {
-			if !vm.Providers[p].Active() {
+		} else {
+			var defaultProjectFound bool
+			for _, prj := range p.(*gce.Provider).GetProjects() {
+				if prj == gce.DefaultProject() {
+					defaultProjectFound = true
+					break
+				}
+			}
+			if !defaultProjectFound {
 				refreshDNS = false
-				break
+			}
+		}
+		// If there are no DNS required providers, we shouldn't refresh DNS,
+		// it's probably a misconfiguration.
+		if len(config.DNSRequiredProviders) == 0 {
+			refreshDNS = false
+		} else {
+			// If any of the required providers is not active, we shouldn't refresh DNS.
+			for _, p := range config.DNSRequiredProviders {
+				if !vm.Providers[p].Active() {
+					refreshDNS = false
+					break
+				}
 			}
 		}
 	}
+
 	// DNS entries are maintained in the GCE DNS registry for all vms, from all
 	// clouds.
 	if refreshDNS {
@@ -1653,6 +1658,14 @@ func AddLabels(l *logger.Logger, clusterName string, labels map[string]string) e
 		}
 	}
 
+	apiClient := centralizedapi.GetCentralizedAPIClient()
+	if apiClient.IsEnabled() {
+		err = apiClient.UpdateCluster(context.Background(), l, &c.Cluster)
+		if err != nil {
+			l.Errorf("failed to update cluster in centralized api: %v", err)
+		}
+	}
+
 	return saveCluster(l, &c.Cluster)
 }
 
@@ -1675,6 +1688,15 @@ func RemoveLabels(l *logger.Logger, clusterName string, labels []string) error {
 			delete(m.Labels, label)
 		}
 	}
+
+	apiClient := centralizedapi.GetCentralizedAPIClient()
+	if apiClient.IsEnabled() {
+		err = apiClient.UpdateCluster(context.Background(), l, &c.Cluster)
+		if err != nil {
+			l.Errorf("failed to update cluster in centralized api: %v", err)
+		}
+	}
+
 	return saveCluster(l, &c.Cluster)
 }
 
@@ -2326,7 +2348,7 @@ func ApplySnapshots(
 		return err
 	}
 
-	return c.Parallel(ctx, l, install.WithNodes(c.Nodes),
+	if err := c.Parallel(ctx, l, install.WithNodes(c.Nodes),
 		func(ctx context.Context, node install.Node) (*install.RunResultDetails, error) {
 			res := &install.RunResultDetails{Node: node}
 
@@ -2393,7 +2415,19 @@ func ApplySnapshots(
 				res.Err = err
 			}
 			return res, nil
-		})
+		}); err != nil {
+		return err
+	}
+
+	apiClient := centralizedapi.GetCentralizedAPIClient()
+	if apiClient.IsEnabled() {
+		err = apiClient.UpdateCluster(context.Background(), l, &c.Cluster)
+		if err != nil {
+			l.Errorf("failed to update cluster in centralized api: %v", err)
+		}
+	}
+
+	return nil
 }
 
 func genMountCommands(devicePath, mountDir string) string {
@@ -2786,6 +2820,15 @@ func createAttachMountVolumes(
 		}
 		l.Printf("Successfully mounted volume to %s", cVM.ProviderID)
 	}
+
+	apiClient := centralizedapi.GetCentralizedAPIClient()
+	if apiClient.IsEnabled() {
+		err := apiClient.UpdateCluster(context.Background(), l, &c.Cluster)
+		if err != nil {
+			l.Errorf("failed to update cluster in centralized api: %v", err)
+		}
+	}
+
 	return nil
 }
 

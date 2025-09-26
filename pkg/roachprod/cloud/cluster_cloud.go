@@ -11,6 +11,8 @@ import (
 	"sort"
 	"time"
 
+	roachprodcentralized "github.com/cockroachdb/cockroach/pkg/cmd/roachprod-centralized/client"
+	"github.com/cockroachdb/cockroach/pkg/roachprod/centralizedapi"
 	cloudcluster "github.com/cockroachdb/cockroach/pkg/roachprod/cloud/types"
 	"github.com/cockroachdb/cockroach/pkg/roachprod/logger"
 	"github.com/cockroachdb/cockroach/pkg/roachprod/ui"
@@ -139,6 +141,22 @@ func (c *Cloud) ListCloud(l *logger.Logger, options vm.ListOptions) error {
 	c.BadInstances = vm.List{}
 
 	providers := append(c.providers, c.localProviders...)
+
+	apiClient := centralizedapi.GetCentralizedAPIClient()
+	if apiClient.IsEnabled() {
+		// Use the centralized roachprod service to list clusters.
+		response, err := apiClient.ListClusters(context.Background(), l, roachprodcentralized.ListClustersOptions{})
+		if err != nil {
+			l.Errorf("Error listing clusters using the centralized API: %s", err)
+		} else {
+			c.Clusters = response.Clusters
+			c.BadInstances = response.BadInstances
+
+			// Remote providers are already listed by the centralized service,
+			// so only use local providers in the local listing.
+			providers = c.localProviders
+		}
+	}
 
 	// List all VMs across all providers in parallel.
 	providerVMs := make(map[string]vm.List)
@@ -330,6 +348,14 @@ func CreateCluster(l *logger.Logger, opts []*ClusterCreateOpts) (*cloudcluster.C
 	// `roachprod.Start` expects nodes/vms to be in sorted order
 	sort.Sort(c.VMs)
 
+	apiClient := centralizedapi.GetCentralizedAPIClient()
+	if apiClient.IsEnabled() {
+		// Use the centralized roachprod service to create the cluster.
+		if err := apiClient.CreateCluster(context.Background(), l, c); err != nil {
+			return nil, err
+		}
+	}
+
 	return c, nil
 }
 
@@ -370,6 +396,14 @@ func GrowCluster(l *logger.Logger, c *cloudcluster.Cluster, numNodes int) error 
 	// `roachprod.Start` expects nodes/vms to be in sorted order
 	sort.Sort(c.VMs)
 
+	apiClient := centralizedapi.GetCentralizedAPIClient()
+	if apiClient.IsEnabled() {
+		// Use the centralized roachprod service to create the cluster.
+		if err := apiClient.UpdateCluster(context.Background(), l, c); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -402,6 +436,10 @@ func ShrinkCluster(l *logger.Logger, c *cloudcluster.Cluster, numNodes int) erro
 	// Update the list of VMs in the cluster.
 	c.VMs = c.VMs[:len(c.VMs)-numNodes]
 
+	apiClient := centralizedapi.GetCentralizedAPIClient()
+	if apiClient.IsEnabled() {
+		// Use the centralized roachprod service to create the cluster.
+		if err := apiClient.UpdateCluster(context.Background(), l, c); err != nil {
 			return err
 		}
 	}
@@ -434,6 +472,15 @@ func DestroyCluster(l *logger.Logger, c *cloudcluster.Cluster) error {
 		return p.Delete(l, vms)
 	})
 	stopSpinner()
+
+	if clusterErr == nil {
+		apiClient := centralizedapi.GetCentralizedAPIClient()
+		if apiClient.IsEnabled() {
+			if err := apiClient.DeleteCluster(context.Background(), l, c.Name); err != nil {
+				l.Printf("WARNING: failed to delete cluster %s from centralized service: %s", c.Name, err)
+			}
+		}
+	}
 	return errors.CombineErrors(dnsErr, clusterErr)
 }
 
@@ -448,5 +495,13 @@ func ExtendCluster(l *logger.Logger, c *cloudcluster.Cluster, extension time.Dur
 		return err
 	}
 	c.Lifetime = newLifetime
+
+	apiClient := centralizedapi.GetCentralizedAPIClient()
+	if apiClient.IsEnabled() {
+		// Use the centralized roachprod service to create the cluster.
+		if err := apiClient.UpdateCluster(context.Background(), l, c); err != nil {
+			return err
+		}
+	}
 	return nil
 }
