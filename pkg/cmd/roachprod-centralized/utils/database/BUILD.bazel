@@ -1,0 +1,27 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "database",
+    srcs = [
+        "connection.go",
+        "migrations.go",
+    ],
+    importpath = "github.com/cockroachdb/cockroach/pkg/cmd/roachprod-centralized/utils/database",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//pkg/cmd/roachprod-centralized/utils/logger",
+        "//pkg/util/timeutil",
+        "@com_github_cockroachdb_errors//:errors",
+        "@com_github_lib_pq//:pq",
+    ],
+)
+
+go_test(
+    name = "database_test",
+    srcs = ["migrations_test.go"],
+    embed = [":database"],
+    deps = [
+        "//pkg/cmd/roachprod-centralized/utils/logger",
+        "@com_github_lib_pq//:pq",
+    ],
+)

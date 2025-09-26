@@ -1,0 +1,230 @@
+# Kubernetes deployment configuration for roachprod-centralized
+# This example shows how to deploy the service in a Kubernetes cluster
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: roachprod-centralized
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: roachprod-config
+  namespace: roachprod-centralized
+data:
+  config.yaml: |
+    log:
+      level: info
+    api:
+      port: 8080
+      metrics:
+        enabled: true
+        port: 8081
+      authentication:
+        disabled: false
+        jwt:
+          header: "X-Goog-IAP-JWT-Assertion"
+          audience: "your-kubernetes-audience"
+    database:
+      type: cockroachdb
+      max_conns: 20
+      max_idle_time: 300
+    tasks:
+      workers: 5
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: roachprod-secrets
+  namespace: roachprod-centralized
+type: Opaque
+stringData:
+  database-url: "postgresql://roachprod_user:password@cockroachdb-cluster:26257/roachprod?sslmode=require"
+  # Add cloud provider credentials here
+  gcp-key.json: |
+    {
+      "type": "service_account",
+      "project_id": "your-project",
+      "private_key_id": "key-id",
+      "private_key": "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n",
+      "client_email": "service-account@your-project.iam.gserviceaccount.com",
+      "client_id": "client-id",
+      "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+      "token_uri": "https://oauth2.googleapis.com/token"
+    }
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: roachprod-centralized
+  namespace: roachprod-centralized
+  labels:
+    app: roachprod-centralized
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: roachprod-centralized
+  template:
+    metadata:
+      labels:
+        app: roachprod-centralized
+    spec:
+      containers:
+      - name: roachprod-centralized
+        image: roachprod-centralized:latest
+        ports:
+        - containerPort: 8080
+          name: api
+        - containerPort: 8081
+          name: metrics
+        env:
+        - name: ROACHPROD_DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: roachprod-secrets
+              key: database-url
+        - name: GOOGLE_APPLICATION_CREDENTIALS
+          value: "/secrets/gcp-key.json"
+        volumeMounts:
+        - name: config-volume
+          mountPath: /etc/roachprod
+          readOnly: true
+        - name: secrets-volume
+          mountPath: /secrets
+          readOnly: true
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        command: ["api"]
+        args: ["--config", "/etc/roachprod/config.yaml"]
+      volumes:
+      - name: config-volume
+        configMap:
+          name: roachprod-config
+      - name: secrets-volume
+        secret:
+          secretName: roachprod-secrets
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: roachprod-centralized
+  namespace: roachprod-centralized
+  labels:
+    app: roachprod-centralized
+spec:
+  selector:
+    app: roachprod-centralized
+  ports:
+  - name: api
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
+  - name: metrics
+    port: 8081
+    targetPort: 8081
+    protocol: TCP
+  type: ClusterIP
+
+---
+# Optional: Horizontal Pod Autoscaler
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: roachprod-centralized-hpa
+  namespace: roachprod-centralized
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: roachprod-centralized
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+
+---
+# Optional: Ingress for external access
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: roachprod-centralized-ingress
+  namespace: roachprod-centralized
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  tls:
+  - hosts:
+    - roachprod-api.example.com
+    secretName: roachprod-centralized-tls
+  rules:
+  - host: roachprod-api.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: roachprod-centralized
+            port:
+              number: 8080
+
+---
+# ServiceMonitor for Prometheus monitoring (if using Prometheus Operator)
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: roachprod-centralized-metrics
+  namespace: roachprod-centralized
+  labels:
+    app: roachprod-centralized
+spec:
+  selector:
+    matchLabels:
+      app: roachprod-centralized
+  endpoints:
+  - port: metrics
+    interval: 30s
+    path: /metrics

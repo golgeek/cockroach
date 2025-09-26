@@ -1,0 +1,46 @@
+# Development Configuration for roachprod-centralized
+# This configuration is optimized for local development and testing
+
+# Logging configuration
+log:
+  level: debug  # Verbose logging for development
+
+# API server configuration
+api:
+  port: 8080
+  base_path: ""  # No base path for development
+  metrics:
+    enabled: true
+    port: 8081
+    path: "/metrics"
+  authentication:
+    disabled: true  # Disable authentication for easier development
+    jwt:
+      header: "X-Goog-IAP-JWT-Assertion"
+      audience: ""  # Not needed when disabled
+
+# Database configuration
+database:
+  type: memory  # Use in-memory storage for development
+  url: ""       # Not needed for memory type
+  max_conns: 10
+  max_idle_time: 300
+
+# Task processing configuration
+tasks:
+  workers: 1  # Single worker for development
+
+# Cloud provider configuration (minimal for development)
+cloudproviders:
+  # Example GCE provider configuration
+  - type: gce
+    gce:
+      project: "development-project"
+      metadata_project: "development-project"
+      dns_project: "dns-project"
+      dns_public_zone: "dev"
+      dns_public_domain: "dev.example.com"
+      dns_managed_zone: "dev-managed"
+      dns_managed_domain: "dev-managed.example.com"
+
+dnsproviders: []  # Empty for development

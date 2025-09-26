@@ -1,0 +1,66 @@
+Log:
+  Level: debug
+API:
+  Port: 8080
+  BasePath: /api
+  Metrics:
+    Enabled: false
+    Port: 8088
+  Authentication:
+    Disabled: true
+    JWT:
+      Header: "MEOW"
+      Audience: ""
+Tasks:
+  Workers: 1
+CloudProviders:
+  - type: gce
+    gce:
+      project: cockroach-ephemeral
+      metadataProject: cockroach-ephemeral
+    DNSPublicZone: "roachprod.crdb.io"
+  - type: gce
+    gce:
+      project: cockroach-roachstress
+      metadataProject: cockroach-ephemeral
+    DNSPublicZone: "roachprod.crdb.io"
+  - type: gce
+    gce:
+      project: cockroach-drt
+      metadataProject: cockroach-ephemeral
+    DNSPublicZone: "drt.crdb.io"
+  - type: aws
+    aws:
+      accountID: "541263489771"
+      assumeStsRole: "crl-roachprod-gc-cronjob"
+    DNSPublicZone: "roachprod.crdb.io"
+  - type: aws
+    aws:
+      accountID: "337380398238"
+      assumeStsRole: "crl-roachprod-gc-cronjob"
+    DNSPublicZone: "roachprod.crdb.io"
+  - type: ibm
+    DNSPublicZone: "roachprod.crdb.io"
+  - type: azure
+    azure:
+      subscriptionName: e2e-adhoc
+    DNSPublicZone: "roachprod.crdb.io"
+  - type: azure
+    azure:
+      subscriptionName: e2e-infra
+    DNSPublicZone: "roachprod.crdb.io"
+  - type: azure
+    azure:
+      subscriptionName: Microsoft Azure Sponsorship
+    DNSPublicZone: "roachprod.crdb.io"
+DNSProviders:
+  - type: gce
+    gce:
+      dnsProject: cockroach-shared
+      dnsPublicZone: roachprod
+      dnsPublicDomain: roachprod.crdb.io
+  - type: gce
+    gce:
+      dnsProject: cockroach-shared
+      dnsPublicZone: drt
+      dnsPublicDomain: drt.crdb.io

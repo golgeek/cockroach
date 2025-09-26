@@ -1,0 +1,78 @@
+# Production Configuration for roachprod-centralized
+# This configuration is optimized for production deployment
+
+# Logging configuration
+log:
+  level: info  # Production logging level
+
+# API server configuration
+api:
+  port: 8080
+  base_path: "/api"  # Version the API in production
+  metrics:
+    enabled: true
+    port: 8081
+    path: "/metrics"
+  authentication:
+    disabled: false  # Enable authentication in production
+    jwt:
+      header: "X-Goog-IAP-JWT-Assertion"
+      audience: "your-production-audience"
+
+# Database configuration
+database:
+  type: cockroachdb
+  url: "postgresql://roachprod_user:password@production-crdb-cluster:26257/roachprod?sslmode=require"
+  max_conns: 20      # Higher connection limit for production
+  max_idle_time: 300 # 5 minutes idle timeout
+
+# Task processing configuration
+tasks:
+  workers: 5  # Multiple workers for production load
+
+# Cloud provider configuration
+cloudproviders:
+  # Production GCE providers
+  - type: gce
+    gce:
+      project: "production-project-1"
+      metadata_project: "shared-metadata-project"
+      dns_project: "shared-dns-project"
+      dns_public_zone: "prod"
+      dns_public_domain: "clusters.example.com"
+      dns_managed_zone: "prod-managed"
+      dns_managed_domain: "managed.clusters.example.com"
+
+  - type: gce
+    gce:
+      project: "production-project-2"
+      metadata_project: "shared-metadata-project"
+      dns_project: "shared-dns-project"
+      dns_public_zone: "prod"
+      dns_public_domain: "clusters.example.com"
+      dns_managed_zone: "prod-managed"
+      dns_managed_domain: "managed.clusters.example.com"
+
+  # Production AWS providers
+  - type: aws
+    aws:
+      account_id: "123456789012"
+      assume_sts_role: true
+
+  - type: aws
+    aws:
+      account_id: "234567890123"
+      assume_sts_role: true
+
+  # Production Azure providers
+  - type: azure
+    azure:
+      subscription_name: "production-subscription"
+
+  # IBM provider
+  - type: ibm
+
+# DNS providers (can be different from cloud providers)
+dnsproviders:
+  - type: gce
+    dnspubliczone: "clusters.example.com"
