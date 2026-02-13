@@ -49,13 +49,9 @@ type Cache struct {
 	cache             map[string]map[string]certInfo
 	account           MemAccount
 	expirationMetrics *aggmetric.AggGauge
-	ttlMetrics        *aggmetric.AggGauge
-	// ttlExpirations stores an atomic expiration value per user, captured by
-	// the TTL closure. Updating this value changes what the TTL gauge reports
-	// without replacing the closure itself, avoiding a data race between
-	// concurrent writers (Upsert) and readers (metric scraping).
-	ttlExpirations map[string]*atomic.Int64
-	timeSrc        timeutil.TimeSource
+	ttlMetrics        *aggmetric.AggFunctionalGauge
+	ttlExpirations    map[string]*atomic.Int64
+	timeSrc           timeutil.TimeSource
 }
 
 // Cache keeps track of when users certificates are expiring. It does this by
@@ -67,7 +63,7 @@ func NewCache(
 	timeSrc timeutil.TimeSource,
 	account MemAccount,
 	expirationMetrics *aggmetric.AggGauge,
-	ttlMetrics *aggmetric.AggGauge,
+	ttlMetrics *aggmetric.AggFunctionalGauge,
 ) *Cache {
 	return &Cache{
 		cache:             make(map[string]map[string]certInfo),
@@ -229,7 +225,7 @@ func (c *Cache) upsertMetricsLocked(user string) {
 		exp = new(atomic.Int64)
 		c.ttlExpirations[user] = exp
 		exp.Store(expiration)
-		c.ttlMetrics.AddFunctionalChild(ttlFunc(c.timeSrc.Now, exp), user)
+		c.ttlMetrics.AddChild(ttlFunc(c.timeSrc.Now, exp), user)
 	} else {
 		// User already has a TTL gauge — just update the shared expiration.
 		exp.Store(expiration)
