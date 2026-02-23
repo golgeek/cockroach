@@ -627,7 +627,7 @@ func restore(
 	// Start the countCompletedProcLoop if this is a traditional restore OR
 	// an online restore using the distributed flow (which also sends processor
 	// completion signals via procCompleteCh).
-	if clusterversion.V24_3.Version().LessEq(resumeClusterVersion) && (!details.OnlineImpl() || useDistFlow) {
+	if !details.OnlineImpl() || useDistFlow {
 		tasks = append(tasks, countCompletedProcLoop)
 	}
 
