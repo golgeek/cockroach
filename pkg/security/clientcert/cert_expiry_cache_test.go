@@ -207,6 +207,36 @@ func TestConcurrentUpdates(t *testing.T) {
 	cache.Clear()
 }
 
+func TestConcurrentUpsertAndMetricRead(t *testing.T) {
+	ctx, clock, stopper, teardown := setup(t)
+	defer teardown()
+	cache, _, ttlMetrics := newCacheAndMetrics(ctx, clock, stopper)
+
+	const user = "testUser"
+
+	// Seed the cache so the TTL child gauge exists.
+	cache.Upsert(ctx, user, defaultSerial, 1000)
+
+	const N = 8000
+	var wg sync.WaitGroup
+	wg.Add(N)
+	for i := range N {
+		go func(i int) {
+			defer wg.Done()
+			if i%2 == 0 {
+				// Writer: update the expiration, triggering upsertMetricsLocked.
+				cache.Upsert(ctx, user, defaultSerial, int64(1000+i))
+			} else {
+				// Reader: read the TTL metric value (simulates metric scraping).
+				if c := ttlMetrics.GetChild(user); c != nil {
+					_ = c.Value()
+				}
+			}
+		}(i)
+	}
+	wg.Wait()
+}
+
 func TestUpsert(t *testing.T) {
 	ctx, clock, stopper, teardown := setup(t)
 	defer teardown()
