@@ -27,7 +27,9 @@ type Registry struct {
 // NewRegistry creates a new DNS provider registry from configuration.
 // It initializes DNS providers based on the provided cloud provider configs
 // and stores them keyed by their DNS domain.
-func NewRegistry(l *logger.Logger, configs []configtypes.DNSProvider) (*Registry, error) {
+func NewRegistry(
+	l *logger.Logger, configs []configtypes.DNSProvider,
+) (*Registry, error) {
 	registry := &Registry{
 		dnsProviders: make(map[string]vm.DNSProvider),
 	}
