@@ -682,7 +682,6 @@ type testCluster interface {
 	GetHostErrorVMs(context.Context, *logger.Logger) ([]string, error)
 	GetLiveMigrationVMs(*logger.Logger) ([]string, error)
 	Extend(context.Context, time.Duration, *logger.Logger) error
-	assertConsistentReplicas(context.Context, *gosql.DB, *testImpl) error
 
 	addLabels(map[string]string) error
 	removeLabels([]string) error
